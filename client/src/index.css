@@ -1,0 +1,123 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@400;500;600&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: hsl(0 0% 12%);
+  --foreground: hsl(0 0% 80%);
+  --card: hsl(0 0% 18%);
+  --card-foreground: hsl(0 0% 80%);
+  --popover: hsl(0 0% 18%);
+  --popover-foreground: hsl(0 0% 80%);
+  --primary: hsl(206 100% 40%);
+  --primary-foreground: hsl(0 0% 100%);
+  --secondary: hsl(0 0% 18%);
+  --secondary-foreground: hsl(0 0% 80%);
+  --muted: hsl(0 0% 25%);
+  --muted-foreground: hsl(0 0% 65%);
+  --accent: hsl(206 100% 40%);
+  --accent-foreground: hsl(0 0% 100%);
+  --destructive: hsl(356 90% 54%);
+  --destructive-foreground: hsl(0 0% 100%);
+  --border: hsl(0 0% 25%);
+  --input: hsl(0 0% 25%);
+  --ring: hsl(206 100% 40%);
+  --radius: 0.375rem;
+  --font-sans: Inter, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+  
+  /* IDE specific colors */
+  --ide-sidebar: hsl(0 0% 18%);
+  --ide-editor: hsl(0 0% 12%);
+  --ide-terminal: hsl(0 0% 18%);
+  --ide-tab-active: hsl(0 0% 12%);
+  --ide-tab-inactive: hsl(0 0% 25%);
+  --ide-line-numbers: hsl(0 0% 18%);
+  
+  /* Syntax highlighting colors */
+  --syntax-keyword: hsl(206 100% 60%);
+  --syntax-string: hsl(17 63% 59%);
+  --syntax-comment: hsl(101 29% 47%);
+  --syntax-function: hsl(54 70% 68%);
+  --syntax-variable: hsl(187 71% 73%);
+  --syntax-number: hsl(99 28% 64%);
+  --syntax-operator: hsl(0 0% 83%);
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-family: var(--font-sans);
+  }
+
+  .font-mono {
+    font-family: var(--font-mono);
+  }
+}
+
+@layer components {
+  .ide-scrollbar::-webkit-scrollbar {
+    @apply w-2 h-2;
+  }
+
+  .ide-scrollbar::-webkit-scrollbar-track {
+    @apply bg-muted;
+  }
+
+  .ide-scrollbar::-webkit-scrollbar-thumb {
+    @apply bg-border rounded;
+  }
+
+  .ide-scrollbar::-webkit-scrollbar-thumb:hover {
+    @apply bg-muted-foreground;
+  }
+
+  .file-tree-item {
+    @apply px-2 py-1 rounded cursor-pointer flex items-center transition-colors;
+  }
+
+  .file-tree-item:hover {
+    background-color: hsl(0 0% 20%);
+  }
+
+  .file-tree-item.active {
+    background-color: hsl(206 100% 40% / 0.2);
+    @apply text-accent;
+  }
+
+  .tab-active {
+    background-color: var(--ide-editor);
+    @apply border-b-2 border-accent;
+  }
+
+  .tab-inactive {
+    background-color: var(--ide-tab-inactive);
+  }
+
+  .tab-inactive:hover {
+    background-color: hsl(0 0% 30%);
+  }
+
+  .syntax-keyword { color: var(--syntax-keyword); }
+  .syntax-string { color: var(--syntax-string); }
+  .syntax-comment { color: var(--syntax-comment); }
+  .syntax-function { color: var(--syntax-function); }
+  .syntax-variable { color: var(--syntax-variable); }
+  .syntax-number { color: var(--syntax-number); }
+  .syntax-operator { color: var(--syntax-operator); }
+
+  .terminal-output {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    line-height: 1.4;
+  }
+
+  .resizer {
+    @apply w-1 bg-border cursor-col-resize transition-colors hover:bg-accent;
+  }
+}
