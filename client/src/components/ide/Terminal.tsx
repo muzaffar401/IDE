@@ -15,20 +15,44 @@ interface TerminalOutput {
   timestamp: Date;
 }
 
+interface TerminalSession {
+  id: string;
+  cwd: string;
+  history: TerminalOutput[];
+  name: string;
+}
+
 export default function Terminal() {
   const [command, setCommand] = useState("");
-  const [history, setHistory] = useState<TerminalOutput[]>([]);
+  const [sessions, setSessions] = useState<TerminalSession[]>([]);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [commandHistory, setCommandHistory] = useState<string[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
-  const [currentDir, setCurrentDir] = useState("~/my-web-project");
   
   const terminalRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
+  const createSessionMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest("POST", "/api/terminal/session", {});
+      return response.json();
+    },
+    onSuccess: (data) => {
+      const newSession: TerminalSession = {
+        id: data.id,
+        cwd: data.cwd,
+        history: [],
+        name: `Terminal ${sessions.length + 1}`
+      };
+      setSessions(prev => [...prev, newSession]);
+      setActiveSessionId(data.id);
+    }
+  });
+
   const executeCommandMutation = useMutation({
-    mutationFn: async ({ command, cwd }: { command: string; cwd: string }) => {
-      const response = await apiRequest("POST", "/api/terminal/execute", { command, cwd });
+    mutationFn: async ({ sessionId, command }: { sessionId: string; command: string }) => {
+      const response = await apiRequest("POST", `/api/terminal/session/${sessionId}/execute`, { command });
       return response.json();
     },
     onSuccess: (data) => {
@@ -41,7 +65,11 @@ export default function Terminal() {
         timestamp: new Date(),
       };
       
-      setHistory(prev => [...prev, output]);
+      setSessions(prev => prev.map(session => 
+        session.id === activeSessionId 
+          ? { ...session, history: [...session.history, output], cwd: data.cwd }
+          : session
+      ));
       
       // Update command history
       if (command.trim()) {
@@ -61,11 +89,11 @@ export default function Terminal() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!command.trim()) return;
+    if (!command.trim() || !activeSessionId) return;
 
     executeCommandMutation.mutate({
+      sessionId: activeSessionId,
       command: command.trim(),
-      cwd: currentDir,
     });
   };
 
@@ -91,15 +119,47 @@ export default function Terminal() {
   };
 
   const clearTerminal = () => {
-    setHistory([]);
+    if (!activeSessionId) return;
+    setSessions(prev => prev.map(session => 
+      session.id === activeSessionId 
+        ? { ...session, history: [] }
+        : session
+    ));
   };
+
+  const createNewTerminal = () => {
+    createSessionMutation.mutate();
+  };
+
+  const closeTerminal = (sessionId: string) => {
+    setSessions(prev => {
+      const filtered = prev.filter(s => s.id !== sessionId);
+      if (activeSessionId === sessionId && filtered.length > 0) {
+        setActiveSessionId(filtered[0].id);
+      } else if (filtered.length === 0) {
+        setActiveSessionId(null);
+      }
+      return filtered;
+    });
+  };
+
+  // Create initial session on mount
+  useEffect(() => {
+    if (sessions.length === 0) {
+      createSessionMutation.mutate();
+    }
+  }, []);
+
+  const activeSession = sessions.find(s => s.id === activeSessionId);
+  const currentHistory = activeSession?.history || [];
+  const currentCwd = activeSession?.cwd || '/';
 
   // Auto-scroll to bottom when new output is added
   useEffect(() => {
     if (terminalRef.current) {
       terminalRef.current.scrollTop = terminalRef.current.scrollHeight;
     }
-  }, [history]);
+  }, [currentHistory]);
 
   // Focus input when terminal is clicked
   const handleTerminalClick = () => {
@@ -129,6 +189,7 @@ export default function Terminal() {
               variant="secondary"
               size="sm"
               className="h-6 px-2 text-xs"
+              onClick={createNewTerminal}
               data-testid="button-new-terminal"
             >
               <Plus className="h-3 w-3 mr-1" />
@@ -175,23 +236,52 @@ export default function Terminal() {
         onClick={handleTerminalClick}
         data-testid="terminal-output"
       >
+        {/* Terminal tabs */}
+        {sessions.length > 1 && (
+          <div className="flex space-x-2 mb-2 border-b border-border pb-2">
+            {sessions.map((session) => (
+              <div
+                key={session.id}
+                className={`flex items-center px-3 py-1 text-xs rounded cursor-pointer ${
+                  session.id === activeSessionId ? 'bg-accent text-accent-foreground' : 'bg-secondary hover:bg-accent/50'
+                }`}
+                onClick={() => setActiveSessionId(session.id)}
+              >
+                <span>{session.name}</span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-4 w-4 p-0 ml-2 hover:bg-destructive/20"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    closeTerminal(session.id);
+                  }}
+                >
+                  <X className="h-2 w-2" />
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
+
         {/* Welcome message */}
-        {history.length === 0 && (
+        {currentHistory.length === 0 && (
           <div className="space-y-1 text-muted-foreground">
-            <div className="text-accent">Welcome to Cursor IDE Terminal</div>
-            <div>Type commands to interact with your project.</div>
+            <div className="text-accent">Welcome to IDE Terminal</div>
+            <div>Type commands to interact with your project files.</div>
+            <div>Available commands: pwd, ls, cd, cat, touch, mkdir, rm, mv, echo, clear, help</div>
             <div></div>
           </div>
         )}
 
         {/* Command history */}
-        {history.map((output) => (
+        {currentHistory.map((output) => (
           <div key={output.id} className="space-y-1 mb-2">
             {/* Command prompt */}
             <div className="flex items-center">
-              <span className="text-green-400">user@cursor-ide</span>
+              <span className="text-green-400">user@ide</span>
               <span className="text-blue-400 mx-1">:</span>
-              <span className="text-accent">{currentDir}</span>
+              <span className="text-accent">{currentCwd}</span>
               <span className="text-foreground ml-1">$ {output.command}</span>
             </div>
             
@@ -212,10 +302,11 @@ export default function Terminal() {
         ))}
 
         {/* Current command prompt */}
+        {activeSessionId && (
         <form onSubmit={handleSubmit} className="flex items-center">
-          <span className="text-green-400 shrink-0">user@cursor-ide</span>
+          <span className="text-green-400 shrink-0">user@ide</span>
           <span className="text-blue-400 mx-1 shrink-0">:</span>
-          <span className="text-accent shrink-0">{currentDir}</span>
+          <span className="text-accent shrink-0">{currentCwd}</span>
           <span className="text-foreground ml-1 shrink-0">$</span>
           <Input
             ref={inputRef}
@@ -228,6 +319,7 @@ export default function Terminal() {
             data-testid="input-terminal-command"
           />
         </form>
+        )}
 
         {/* Loading indicator */}
         {executeCommandMutation.isPending && (
