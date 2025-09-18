@@ -21,7 +21,10 @@ interface EditorAreaProps {
   activeFile?: File;
   onTabClose: (filePath: string) => void;
   onTabSwitch: (filePath: string) => void;
-  onEditorStateChange?: (state: { isDirty: boolean; cursorPosition?: { line: number; column: number }; isSaving: boolean }) => void;
+  onEditorStateChange?: (state: { isDirty: boolean; cursorPosition?: { line: number; column: number }; isSaving: boolean; bufferLength?: number; filePath?: string; content?: string }) => void;
+  onFileSaved?: (filePath: string, content: string) => void;
+  dirtyTabs?: Set<string>;
+  savedContent?: Map<string, string>;
 }
 
 export default function EditorArea({ 
@@ -30,7 +33,10 @@ export default function EditorArea({
   activeFile, 
   onTabClose, 
   onTabSwitch,
-  onEditorStateChange
+  onEditorStateChange,
+  onFileSaved,
+  dirtyTabs = new Set(),
+  savedContent = new Map()
 }: EditorAreaProps) {
   const editorRef = useRef<HTMLDivElement>(null);
   const monacoEditorRef = useRef<any>(null);
@@ -38,9 +44,9 @@ export default function EditorArea({
   const autoSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const prevFilePathRef = useRef<string | null>(null);
   const [isMonacoLoaded, setIsMonacoLoaded] = useState(false);
-  const [isDirty, setIsDirty] = useState(false);
   const [cursorPosition, setCursorPosition] = useState({ line: 1, column: 1 });
   const [isSaving, setIsSaving] = useState(false);
+  const [bufferLength, setBufferLength] = useState(0);
   
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -49,12 +55,12 @@ export default function EditorArea({
     mutationFn: async ({ filePath, content }: { filePath: string; content: string }) => {
       setIsSaving(true);
       const response = await apiRequest("PATCH", `/api/files${filePath}`, { content });
-      return response.json();
+      return { filePath, content, ...await response.json() };
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/files"] });
-      setIsDirty(false);
       setIsSaving(false);
+      onFileSaved?.(data.filePath, data.content);
       toast({ title: "Saved", description: "File saved successfully", duration: 2000 });
     },
     onError: () => {
@@ -143,9 +149,10 @@ export default function EditorArea({
       
       const content = monacoEditorRef.current.getValue();
       setEditorContent(content);
+      setBufferLength(content.length);
       
-      const isDirtyState = activeFile && content !== activeFile.content;
-      setIsDirty(Boolean(isDirtyState));
+      const currentSavedContent = activeFile ? savedContent.get(activeFile.path) || '' : '';
+      const isDirtyState = activeFile && content !== currentSavedContent;
       
       if (isDirtyState) {
         // Clear existing timeout
@@ -196,13 +203,14 @@ export default function EditorArea({
     }
     
     // Reset state for new file
-    setIsDirty(false);
     setIsSaving(false);
     setCursorPosition({ line: 1, column: 1 });
     
     // Only setValue when actually switching to a different file
     if (monacoEditorRef.current && activeFile && activeFile.path !== prevFilePathRef.current) {
-      monacoEditorRef.current.setValue(activeFile.content || '');
+      const content = activeFile.content || '';
+      monacoEditorRef.current.setValue(content);
+      setBufferLength(content.length);
       const language = getLanguageFromFileName(activeFile.name);
       window.monaco.editor.setModelLanguage(monacoEditorRef.current.getModel(), language);
       prevFilePathRef.current = activeFile.path;
@@ -211,12 +219,18 @@ export default function EditorArea({
 
   // Notify parent about editor state changes
   useEffect(() => {
+    const currentSavedContent = activeFile ? savedContent.get(activeFile.path) || '' : '';
+    const isDirtyState = activeFile && editorContent !== currentSavedContent;
+    
     onEditorStateChange?.({
-      isDirty,
+      isDirty: Boolean(isDirtyState),
       cursorPosition,
-      isSaving
+      isSaving,
+      bufferLength,
+      filePath: activeFile?.path,
+      content: editorContent
     });
-  }, [isDirty, cursorPosition, isSaving, onEditorStateChange]);
+  }, [editorContent, cursorPosition, isSaving, bufferLength, activeFile, savedContent, onEditorStateChange]);
 
   const getLanguageFromFileName = (fileName: string): string => {
     const ext = fileName.split('.').pop()?.toLowerCase();
@@ -267,7 +281,7 @@ export default function EditorArea({
               >
                 <Icon className="h-4 w-4 mr-2 shrink-0" />
                 <span className="text-sm truncate max-w-[120px]" title={tab.name}>
-                  {activeTab === tab.path && isDirty ? '• ' : ''}{tab.name}
+                  {dirtyTabs.has(tab.path) ? '• ' : ''}{tab.name}
                 </span>
                 <Button
                   variant="ghost"

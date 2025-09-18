@@ -7,6 +7,7 @@ interface StatusBarProps {
     isDirty: boolean;
     cursorPosition?: { line: number; column: number };
     isSaving: boolean;
+    bufferLength?: number;
   };
 }
 
@@ -71,7 +72,7 @@ export default function StatusBar({ activeFile, editorState }: StatusBarProps) {
               {getLanguageFromFileName(activeFile.name)}
             </span>
             <span className="text-muted-foreground">
-              {activeFile.content?.length || 0} chars
+              {editorState?.bufferLength !== undefined ? editorState.bufferLength : (activeFile.content?.length || 0)} chars
             </span>
           </>
         )}

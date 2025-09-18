@@ -14,7 +14,9 @@ export default function IDE() {
   const [explorerVisible, setExplorerVisible] = useState(true);
   const [terminalVisible, setTerminalVisible] = useState(true);
   const [newFileDialog, setNewFileDialog] = useState<{ open: boolean; type: 'file' | 'folder' | null }>({ open: false, type: null });
-  const [editorState, setEditorState] = useState<{ isDirty: boolean; cursorPosition?: { line: number; column: number }; isSaving: boolean }>({ isDirty: false, isSaving: false });
+  const [editorState, setEditorState] = useState<{ isDirty: boolean; cursorPosition?: { line: number; column: number }; isSaving: boolean; bufferLength?: number }>({ isDirty: false, isSaving: false });
+  const [dirtyTabs, setDirtyTabs] = useState<Set<string>>(new Set());
+  const [savedContent, setSavedContent] = useState<Map<string, string>>(new Map());
 
   const handleFileOpen = useCallback((file: File) => {
     if (file.isDirectory) return;
@@ -22,11 +24,67 @@ export default function IDE() {
     const existingTab = openTabs.find(tab => tab.path === file.path);
     if (!existingTab) {
       setOpenTabs(prev => [...prev, file]);
+      // Initialize saved content reference
+      setSavedContent(prev => {
+        const next = new Map(prev);
+        next.set(file.path, file.content || '');
+        return next;
+      });
     }
     setActiveTab(file.path);
   }, [openTabs]);
 
+  const handleFileSaved = useCallback((filePath: string, newContent: string) => {
+    // Update the tab content to prevent stale content issues
+    setOpenTabs(prev => prev.map(tab => 
+      tab.path === filePath 
+        ? { ...tab, content: newContent, updatedAt: new Date() }
+        : tab
+    ));
+    
+    // Update saved content reference
+    setSavedContent(prev => {
+      const next = new Map(prev);
+      next.set(filePath, newContent);
+      return next;
+    });
+    
+    // Clear dirty state
+    setDirtyTabs(prev => {
+      const next = new Set(prev);
+      next.delete(filePath);
+      return next;
+    });
+  }, []);
+
+  const handleEditorStateChange = useCallback((state: { isDirty: boolean; cursorPosition?: { line: number; column: number }; isSaving: boolean; bufferLength?: number; filePath?: string; content?: string }) => {
+    setEditorState(state);
+    
+    // Update per-tab dirty tracking
+    if (state.filePath) {
+      const savedContentForFile = savedContent.get(state.filePath) || '';
+      const isDirtyForFile = state.content !== undefined && state.content !== savedContentForFile;
+      
+      setDirtyTabs(prev => {
+        const next = new Set(prev);
+        if (isDirtyForFile) {
+          next.add(state.filePath!);
+        } else {
+          next.delete(state.filePath!);
+        }
+        return next;
+      });
+    }
+  }, [savedContent]);
+
   const handleTabClose = useCallback((filePath: string) => {
+    // Check if tab is dirty and confirm close
+    if (dirtyTabs.has(filePath)) {
+      if (!confirm(`${filePath.split('/').pop()} has unsaved changes. Close without saving?`)) {
+        return;
+      }
+    }
+    
     setOpenTabs(prev => {
       const filtered = prev.filter(tab => tab.path !== filePath);
       if (activeTab === filePath && filtered.length > 0) {
@@ -36,7 +94,19 @@ export default function IDE() {
       }
       return filtered;
     });
-  }, [activeTab]);
+    
+    // Clean up dirty state and saved content
+    setDirtyTabs(prev => {
+      const next = new Set(prev);
+      next.delete(filePath);
+      return next;
+    });
+    setSavedContent(prev => {
+      const next = new Map(prev);
+      next.delete(filePath);
+      return next;
+    });
+  }, [activeTab, dirtyTabs]);
 
   const handleTabSwitch = useCallback((filePath: string) => {
     setActiveTab(filePath);
@@ -113,7 +183,10 @@ export default function IDE() {
                   activeFile={activeFile}
                   onTabClose={handleTabClose}
                   onTabSwitch={handleTabSwitch}
-                  onEditorStateChange={setEditorState}
+                  onEditorStateChange={handleEditorStateChange}
+                  onFileSaved={handleFileSaved}
+                  dirtyTabs={dirtyTabs}
+                  savedContent={savedContent}
                   data-testid="editor-area"
                 />
               </ResizablePanel>

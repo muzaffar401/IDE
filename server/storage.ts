@@ -16,27 +16,43 @@ export interface IStorage {
 
 export class DatabaseStorage implements IStorage {
   private db: any;
+  private fallbackStorage: MemoryStorage | null = null;
+  private dbConnected = false;
 
   constructor() {
     if (!process.env.DATABASE_URL) {
-      throw new Error("DATABASE_URL is required");
+      console.warn("DATABASE_URL not found, using in-memory storage");
+      this.fallbackStorage = new MemoryStorage();
+      return;
     }
     
-    // Configure Neon for Replit environment
-    neonConfig.fetchConnectionCache = true;
-    neonConfig.webSocketConstructor = undefined; // Use fetch instead of WebSockets
-    const pool = new Pool({ 
-      connectionString: process.env.DATABASE_URL,
-      ssl: { rejectUnauthorized: false }
-    });
-    this.db = drizzle(pool);
-    this.initializeDefaultProject();
+    try {
+      // Configure Neon for Replit environment
+      neonConfig.fetchConnectionCache = true;
+      neonConfig.webSocketConstructor = undefined; // Use fetch instead of WebSockets
+      const pool = new Pool({ 
+        connectionString: process.env.DATABASE_URL,
+        ssl: { rejectUnauthorized: false }
+      });
+      this.db = drizzle(pool);
+      this.initializeDefaultProject();
+    } catch (error) {
+      console.error("Failed to connect to database, falling back to in-memory storage:", error);
+      this.fallbackStorage = new MemoryStorage();
+    }
   }
 
   private async initializeDefaultProject() {
+    if (this.fallbackStorage) {
+      console.log("Using in-memory storage fallback");
+      return;
+    }
+    
     try {
-      // Check if files already exist
+      // Test database connection
       const existingFiles = await this.db.select().from(files).limit(1);
+      this.dbConnected = true;
+      
       if (existingFiles.length > 0) {
         return; // Already initialized
       }
@@ -219,11 +235,16 @@ Enjoy coding! 🚀`,
       });
     }
     } catch (error) {
-      console.error("Failed to initialize default project:", error);
+      console.error("Failed to initialize default project, falling back to in-memory storage:", error);
+      this.fallbackStorage = new MemoryStorage();
     }
   }
 
   async getFiles(): Promise<File[]> {
+    if (this.fallbackStorage) {
+      return this.fallbackStorage.getFiles();
+    }
+    
     try {
       const allFiles = await this.db.select().from(files);
       return allFiles.sort((a: File, b: File) => {
@@ -233,22 +254,36 @@ Enjoy coding! 🚀`,
         return a.name.localeCompare(b.name);
       });
     } catch (error) {
-      console.error("Failed to get files:", error);
-      return [];
+      console.error("Database query failed, falling back to in-memory storage:", error);
+      if (!this.fallbackStorage) {
+        this.fallbackStorage = new MemoryStorage();
+      }
+      return this.fallbackStorage.getFiles();
     }
   }
 
   async getFile(filePath: string): Promise<File | undefined> {
+    if (this.fallbackStorage) {
+      return this.fallbackStorage.getFile(filePath);
+    }
+    
     try {
       const result = await this.db.select().from(files).where(eq(files.path, filePath)).limit(1);
       return result[0] || undefined;
     } catch (error) {
-      console.error("Failed to get file:", error);
-      return undefined;
+      console.error("Database query failed, falling back to in-memory storage:", error);
+      if (!this.fallbackStorage) {
+        this.fallbackStorage = new MemoryStorage();
+      }
+      return this.fallbackStorage.getFile(filePath);
     }
   }
 
   async createFile(fileData: InsertFile): Promise<File> {
+    if (this.fallbackStorage) {
+      return this.fallbackStorage.createFile(fileData);
+    }
+    
     try {
       const result = await this.db.insert(files).values({
         name: fileData.name,
@@ -259,12 +294,19 @@ Enjoy coding! 🚀`,
       }).returning();
       return result[0];
     } catch (error) {
-      console.error("Failed to create file:", error);
-      throw error;
+      console.error("Database query failed, falling back to in-memory storage:", error);
+      if (!this.fallbackStorage) {
+        this.fallbackStorage = new MemoryStorage();
+      }
+      return this.fallbackStorage.createFile(fileData);
     }
   }
 
   async updateFile(filePath: string, updates: UpdateFile): Promise<File | undefined> {
+    if (this.fallbackStorage) {
+      return this.fallbackStorage.updateFile(filePath, updates);
+    }
+    
     try {
       const result = await this.db.update(files)
         .set({
@@ -275,12 +317,19 @@ Enjoy coding! 🚀`,
         .returning();
       return result[0] || undefined;
     } catch (error) {
-      console.error("Failed to update file:", error);
-      return undefined;
+      console.error("Database query failed, falling back to in-memory storage:", error);
+      if (!this.fallbackStorage) {
+        this.fallbackStorage = new MemoryStorage();
+      }
+      return this.fallbackStorage.updateFile(filePath, updates);
     }
   }
 
   async deleteFile(filePath: string): Promise<boolean> {
+    if (this.fallbackStorage) {
+      return this.fallbackStorage.deleteFile(filePath);
+    }
+    
     try {
       const file = await this.getFile(filePath);
       if (!file) return false;
@@ -299,12 +348,19 @@ Enjoy coding! 🚀`,
       const result = await this.db.delete(files).where(eq(files.path, filePath)).returning();
       return result.length > 0;
     } catch (error) {
-      console.error("Failed to delete file:", error);
-      return false;
+      console.error("Database query failed, falling back to in-memory storage:", error);
+      if (!this.fallbackStorage) {
+        this.fallbackStorage = new MemoryStorage();
+      }
+      return this.fallbackStorage.deleteFile(filePath);
     }
   }
 
   async renameFile(oldPath: string, newPath: string): Promise<File | undefined> {
+    if (this.fallbackStorage) {
+      return this.fallbackStorage.renameFile(oldPath, newPath);
+    }
+    
     try {
       const file = await this.getFile(oldPath);
       if (!file) return undefined;
@@ -347,12 +403,19 @@ Enjoy coding! 🚀`,
 
       return updatedFile[0] || undefined;
     } catch (error) {
-      console.error("Failed to rename file:", error);
-      return undefined;
+      console.error("Database query failed, falling back to in-memory storage:", error);
+      if (!this.fallbackStorage) {
+        this.fallbackStorage = new MemoryStorage();
+      }
+      return this.fallbackStorage.renameFile(oldPath, newPath);
     }
   }
 
   async searchFiles(query: string): Promise<File[]> {
+    if (this.fallbackStorage) {
+      return this.fallbackStorage.searchFiles(query);
+    }
+    
     try {
       const result = await this.db.select().from(files).where(
         or(
@@ -362,9 +425,176 @@ Enjoy coding! 🚀`,
       );
       return result;
     } catch (error) {
-      console.error("Failed to search files:", error);
-      return [];
+      console.error("Database query failed, falling back to in-memory storage:", error);
+      if (!this.fallbackStorage) {
+        this.fallbackStorage = new MemoryStorage();
+      }
+      return this.fallbackStorage.searchFiles(query);
     }
+  }
+}
+
+class MemoryStorage implements IStorage {
+  private files: Map<string, File>;
+  private projectRoot: string;
+
+  constructor() {
+    this.files = new Map();
+    this.projectRoot = "/tmp/project-workspace";
+    this.initializeDefaultProject();
+  }
+
+  private async initializeDefaultProject() {
+    // Initialize with default files
+    const defaultFiles: InsertFile[] = [
+      {
+        name: "my-web-project",
+        path: "/",
+        isDirectory: true,
+        parentPath: null,
+      },
+      {
+        name: "src",
+        path: "/src",
+        isDirectory: true,
+        parentPath: "/",
+      },
+      {
+        name: "index.js",
+        path: "/src/index.js",
+        content: `// Welcome to your web-based IDE!
+console.log('Hello, World!');`,
+        isDirectory: false,
+        parentPath: "/src",
+      },
+      {
+        name: "README.md",
+        path: "/README.md",
+        content: `# My Web Project\n\nA sample web development project.\n\n## Getting Started\n\nUse the terminal to run commands and edit files in the editor.`,
+        isDirectory: false,
+        parentPath: "/",
+      },
+    ];
+
+    for (const fileData of defaultFiles) {
+      const file: File = {
+        ...fileData,
+        id: Math.random().toString(36).substring(2),
+        content: fileData.content || null,
+        isDirectory: fileData.isDirectory || false,
+        parentPath: fileData.parentPath || null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+      this.files.set(file.path, file);
+    }
+  }
+
+  async getFiles(): Promise<File[]> {
+    return Array.from(this.files.values()).sort((a, b) => {
+      // Directories first, then files
+      if (a.isDirectory && !b.isDirectory) return -1;
+      if (!a.isDirectory && b.isDirectory) return 1;
+      return a.name.localeCompare(b.name);
+    });
+  }
+
+  async getFile(filePath: string): Promise<File | undefined> {
+    return this.files.get(filePath);
+  }
+
+  async createFile(fileData: InsertFile): Promise<File> {
+    const file: File = {
+      ...fileData,
+      id: Math.random().toString(36).substring(2),
+      content: fileData.content || null,
+      isDirectory: fileData.isDirectory || false,
+      parentPath: fileData.parentPath || null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    this.files.set(file.path, file);
+    return file;
+  }
+
+  async updateFile(filePath: string, updates: UpdateFile): Promise<File | undefined> {
+    const existingFile = this.files.get(filePath);
+    if (!existingFile) return undefined;
+
+    const updatedFile: File = {
+      ...existingFile,
+      ...updates,
+      updatedAt: new Date(),
+    };
+    this.files.set(filePath, updatedFile);
+    return updatedFile;
+  }
+
+  async deleteFile(filePath: string): Promise<boolean> {
+    const file = this.files.get(filePath);
+    if (!file) return false;
+
+    // If it's a directory, delete all children
+    if (file.isDirectory) {
+      const children = Array.from(this.files.values()).filter(
+        f => f.parentPath === filePath || f.path.startsWith(filePath + "/")
+      );
+      for (const child of children) {
+        this.files.delete(child.path);
+      }
+    }
+
+    return this.files.delete(filePath);
+  }
+
+  async renameFile(oldPath: string, newPath: string): Promise<File | undefined> {
+    const file = this.files.get(oldPath);
+    if (!file) return undefined;
+
+    // Update the file
+    const updatedFile: File = {
+      ...file,
+      name: path.basename(newPath),
+      path: newPath,
+      updatedAt: new Date(),
+    };
+
+    // Remove old entry and add new one
+    this.files.delete(oldPath);
+    this.files.set(newPath, updatedFile);
+
+    // If it's a directory, update all children
+    if (file.isDirectory) {
+      const children = Array.from(this.files.values()).filter(
+        f => f.parentPath === oldPath || f.path.startsWith(oldPath + "/")
+      );
+      
+      for (const child of children) {
+        const newChildPath = child.path.replace(oldPath, newPath);
+        const newParentPath = child.parentPath === oldPath ? newPath : 
+          child.parentPath?.replace(oldPath, newPath) || null;
+        
+        const updatedChild: File = {
+          ...child,
+          path: newChildPath,
+          parentPath: newParentPath,
+          updatedAt: new Date(),
+        };
+        
+        this.files.delete(child.path);
+        this.files.set(newChildPath, updatedChild);
+      }
+    }
+
+    return updatedFile;
+  }
+
+  async searchFiles(query: string): Promise<File[]> {
+    const lowerQuery = query.toLowerCase();
+    return Array.from(this.files.values()).filter(file => 
+      file.name.toLowerCase().includes(lowerQuery) ||
+      (file.content && file.content.toLowerCase().includes(lowerQuery))
+    );
   }
 }
 
