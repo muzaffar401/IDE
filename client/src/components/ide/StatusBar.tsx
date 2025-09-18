@@ -1,11 +1,16 @@
-import { CheckCircle, AlertTriangle, XCircle, RotateCcw } from "lucide-react";
+import { CheckCircle, AlertTriangle, XCircle, RotateCcw, Save, Clock } from "lucide-react";
 import type { File } from "@shared/schema";
 
 interface StatusBarProps {
   activeFile?: File;
+  editorState?: {
+    isDirty: boolean;
+    cursorPosition?: { line: number; column: number };
+    isSaving: boolean;
+  };
 }
 
-export default function StatusBar({ activeFile }: StatusBarProps) {
+export default function StatusBar({ activeFile, editorState }: StatusBarProps) {
   const getLanguageFromFileName = (fileName: string): string => {
     const ext = fileName.split('.').pop()?.toLowerCase();
     switch (ext) {
@@ -58,16 +63,40 @@ export default function StatusBar({ activeFile }: StatusBarProps) {
       <div className="flex items-center space-x-4">
         {activeFile && (
           <>
-            <span data-testid="text-cursor-position">Ln 1, Col 1</span>
+            <span data-testid="text-cursor-position">
+              Ln {editorState?.cursorPosition?.line || 1}, Col {editorState?.cursorPosition?.column || 1}
+            </span>
             <span data-testid="text-encoding">UTF-8</span>
             <span data-testid="text-language">
               {getLanguageFromFileName(activeFile.name)}
             </span>
+            <span className="text-muted-foreground">
+              {activeFile.content?.length || 0} chars
+            </span>
           </>
         )}
         <div className="flex items-center space-x-1">
-          <RotateCcw className="h-3 w-3 animate-spin" />
-          <span data-testid="text-auto-save">Auto Save</span>
+          {editorState?.isSaving ? (
+            <>
+              <RotateCcw className="h-3 w-3 animate-spin" />
+              <span data-testid="text-saving">Saving...</span>
+            </>
+          ) : editorState?.isDirty ? (
+            <>
+              <Clock className="h-3 w-3 text-yellow-400" />
+              <span data-testid="text-unsaved" className="text-yellow-400">Unsaved changes</span>
+            </>
+          ) : activeFile ? (
+            <>
+              <Save className="h-3 w-3 text-green-400" />
+              <span data-testid="text-saved" className="text-green-400">Saved</span>
+            </>
+          ) : (
+            <>
+              <RotateCcw className="h-3 w-3" />
+              <span data-testid="text-auto-save">Auto Save</span>
+            </>
+          )}
         </div>
       </div>
     </div>

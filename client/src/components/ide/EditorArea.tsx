@@ -21,6 +21,7 @@ interface EditorAreaProps {
   activeFile?: File;
   onTabClose: (filePath: string) => void;
   onTabSwitch: (filePath: string) => void;
+  onEditorStateChange?: (state: { isDirty: boolean; cursorPosition?: { line: number; column: number }; isSaving: boolean }) => void;
 }
 
 export default function EditorArea({ 
@@ -28,7 +29,8 @@ export default function EditorArea({
   activeTab, 
   activeFile, 
   onTabClose, 
-  onTabSwitch 
+  onTabSwitch,
+  onEditorStateChange
 }: EditorAreaProps) {
   const editorRef = useRef<HTMLDivElement>(null);
   const monacoEditorRef = useRef<any>(null);
@@ -36,20 +38,28 @@ export default function EditorArea({
   const autoSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const prevFilePathRef = useRef<string | null>(null);
   const [isMonacoLoaded, setIsMonacoLoaded] = useState(false);
+  const [isDirty, setIsDirty] = useState(false);
+  const [cursorPosition, setCursorPosition] = useState({ line: 1, column: 1 });
+  const [isSaving, setIsSaving] = useState(false);
   
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
   const updateFileMutation = useMutation({
     mutationFn: async ({ filePath, content }: { filePath: string; content: string }) => {
+      setIsSaving(true);
       const response = await apiRequest("PATCH", `/api/files${filePath}`, { content });
       return response.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/files"] });
+      setIsDirty(false);
+      setIsSaving(false);
+      toast({ title: "Saved", description: "File saved successfully", duration: 2000 });
     },
     onError: () => {
       toast({ title: "Error", description: "Failed to save file", variant: "destructive" });
+      setIsSaving(false);
     },
   });
 
@@ -128,25 +138,23 @@ export default function EditorArea({
     const disposable = monacoEditorRef.current.onDidChangeModelContent((e: any) => {
       // Ignore programmatic setValue calls to prevent race conditions
       if (e.isFlush) {
-        console.log('Ignoring programmatic setValue event');
         return;
       }
       
       const content = monacoEditorRef.current.getValue();
-      console.log('Editor content changed:', content, 'length:', content.length, 'activeFile:', activeFile?.path, 'activeFile.content:', activeFile?.content);
       setEditorContent(content);
       
-      if (activeFile && content !== activeFile.content) {
-        console.log('Setting auto-save timeout for:', activeFile.path, 'content length:', content.length);
+      const isDirtyState = activeFile && content !== activeFile.content;
+      setIsDirty(Boolean(isDirtyState));
+      
+      if (isDirtyState) {
         // Clear existing timeout
         if (autoSaveTimeoutRef.current) {
           clearTimeout(autoSaveTimeoutRef.current);
-          console.log('Cleared existing timeout');
         }
         
         // Set new debounced auto-save
         autoSaveTimeoutRef.current = setTimeout(() => {
-          console.log('Auto-save executing for:', activeFile.path, 'content:', content);
           // Capture the file path and content at timeout creation time
           const currentFilePath = activeFile.path;
           const currentContent = content;
@@ -156,9 +164,15 @@ export default function EditorArea({
           });
           autoSaveTimeoutRef.current = null;
         }, 1000);
-      } else {
-        console.log('No auto-save needed:', { activeFile: activeFile?.path, contentMatch: content === activeFile?.content });
       }
+    });
+
+    // Track cursor position
+    const cursorDisposable = monacoEditorRef.current.onDidChangeCursorPosition((e: any) => {
+      setCursorPosition({
+        line: e.position.lineNumber,
+        column: e.position.column
+      });
     });
 
     return () => {
@@ -168,6 +182,7 @@ export default function EditorArea({
         autoSaveTimeoutRef.current = null;
       }
       disposable?.dispose();
+      cursorDisposable?.dispose();
       monacoEditorRef.current?.dispose();
     };
   }, [isMonacoLoaded, activeFile]); // Removed updateFileMutation to prevent editor recreation
@@ -180,15 +195,28 @@ export default function EditorArea({
       autoSaveTimeoutRef.current = null;
     }
     
+    // Reset state for new file
+    setIsDirty(false);
+    setIsSaving(false);
+    setCursorPosition({ line: 1, column: 1 });
+    
     // Only setValue when actually switching to a different file
     if (monacoEditorRef.current && activeFile && activeFile.path !== prevFilePathRef.current) {
-      console.log('Switching to file:', activeFile.path, 'from:', prevFilePathRef.current);
       monacoEditorRef.current.setValue(activeFile.content || '');
       const language = getLanguageFromFileName(activeFile.name);
       window.monaco.editor.setModelLanguage(monacoEditorRef.current.getModel(), language);
       prevFilePathRef.current = activeFile.path;
     }
   }, [activeFile]);
+
+  // Notify parent about editor state changes
+  useEffect(() => {
+    onEditorStateChange?.({
+      isDirty,
+      cursorPosition,
+      isSaving
+    });
+  }, [isDirty, cursorPosition, isSaving, onEditorStateChange]);
 
   const getLanguageFromFileName = (fileName: string): string => {
     const ext = fileName.split('.').pop()?.toLowerCase();
@@ -239,7 +267,7 @@ export default function EditorArea({
               >
                 <Icon className="h-4 w-4 mr-2 shrink-0" />
                 <span className="text-sm truncate max-w-[120px]" title={tab.name}>
-                  {tab.name}
+                  {activeTab === tab.path && isDirty ? '• ' : ''}{tab.name}
                 </span>
                 <Button
                   variant="ghost"

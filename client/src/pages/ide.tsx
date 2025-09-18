@@ -14,6 +14,7 @@ export default function IDE() {
   const [explorerVisible, setExplorerVisible] = useState(true);
   const [terminalVisible, setTerminalVisible] = useState(true);
   const [newFileDialog, setNewFileDialog] = useState<{ open: boolean; type: 'file' | 'folder' | null }>({ open: false, type: null });
+  const [editorState, setEditorState] = useState<{ isDirty: boolean; cursorPosition?: { line: number; column: number }; isSaving: boolean }>({ isDirty: false, isSaving: false });
 
   const handleFileOpen = useCallback((file: File) => {
     if (file.isDirectory) return;
@@ -112,6 +113,7 @@ export default function IDE() {
                   activeFile={activeFile}
                   onTabClose={handleTabClose}
                   onTabSwitch={handleTabSwitch}
+                  onEditorStateChange={setEditorState}
                   data-testid="editor-area"
                 />
               </ResizablePanel>
@@ -131,6 +133,7 @@ export default function IDE() {
       
       <StatusBar 
         activeFile={activeFile}
+        editorState={editorState}
         data-testid="status-bar"
       />
     </div>
