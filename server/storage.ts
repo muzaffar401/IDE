@@ -22,8 +22,13 @@ export class DatabaseStorage implements IStorage {
       throw new Error("DATABASE_URL is required");
     }
     
+    // Configure Neon for Replit environment
     neonConfig.fetchConnectionCache = true;
-    const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+    neonConfig.webSocketConstructor = undefined; // Use fetch instead of WebSockets
+    const pool = new Pool({ 
+      connectionString: process.env.DATABASE_URL,
+      ssl: { rejectUnauthorized: false }
+    });
     this.db = drizzle(pool);
     this.initializeDefaultProject();
   }

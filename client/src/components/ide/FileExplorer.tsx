@@ -177,10 +177,29 @@ export default function FileExplorer({ onFileOpen, searchQuery = "", onSearchCha
       return;
     }
 
-    const newPath = `${targetFile.path}/${draggedItem.name}`;
+    // Check if it's already in the target directory (no-op)
+    if (draggedItem.parentPath === targetFile.path) {
+      toast({ title: "Info", description: "File is already in this location" });
+      setDraggedItem(null);
+      return;
+    }
+
+    // Build correct path for root directory
+    const basePath = targetFile.path === '/' ? '' : targetFile.path;
+    const newPath = `${basePath}/${draggedItem.name}`;
+    
+    // Check if a file with the same name already exists
+    const existingFile = files.find(f => f.path === newPath);
+    if (existingFile) {
+      if (!confirm(`A file named "${draggedItem.name}" already exists. Replace it?`)) {
+        setDraggedItem(null);
+        return;
+      }
+    }
+
     renameFileMutation.mutate({ oldPath: draggedItem.path, newPath });
     setDraggedItem(null);
-  }, [draggedItem, renameFileMutation]);
+  }, [draggedItem, renameFileMutation, files, toast]);
 
   const handleContextMenu = useCallback((e: React.MouseEvent, file: File) => {
     e.preventDefault();
